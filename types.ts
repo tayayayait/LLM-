@@ -15,3 +15,5 @@ export interface SummarizeResponse {
   trace_id?: string;
   error?: string;
 }
+
+export type StreamStatus = 'idle' | 'streaming' | 'complete' | 'error';

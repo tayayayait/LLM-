@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { SummaryLength, SummaryTemplate } from './types';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { SummaryLength, SummaryTemplate, StreamStatus } from './types';
 import FileUploader from './components/FileUploader';
 import SummaryOptions from './components/SummaryOptions';
 import ResultDisplay from './components/ResultDisplay';
 import SharedResultPage from './components/SharedResultPage';
-import { generateSummary } from './services/geminiService';
+import { summarizeStream } from './services/streamingService';
 import { SparklesIcon } from './components/icons';
 
 const App: React.FC = () => {
@@ -15,6 +15,12 @@ const App: React.FC = () => {
   const [summary, setSummary] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>('idle');
+  const [streamingText, setStreamingText] = useState('');
+  const [streamProgress, setStreamProgress] = useState<number | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const streamControllerRef = useRef<AbortController | null>(null);
+  const activeRequestIdRef = useRef(0);
 
   useEffect(() => {
     const handleHashChange = () => setHash(window.location.hash);
@@ -28,44 +34,128 @@ const App: React.FC = () => {
       return;
     }
     setError(null);
+    setStreamError(null);
     setIsLoading(true);
     setSummary(null);
+    setStreamStatus('streaming');
+    setStreamingText('');
+    setStreamProgress(null);
+
+    if (streamControllerRef.current) {
+      streamControllerRef.current.abort();
+      streamControllerRef.current = null;
+    }
+
+    activeRequestIdRef.current += 1;
+    const requestId = activeRequestIdRef.current;
+
+    const controller = new AbortController();
+    streamControllerRef.current = controller;
+
+    const runIfActive = (updater: () => void) => {
+      if (activeRequestIdRef.current === requestId) {
+        updater();
+      }
+    };
 
     try {
-      const result = await generateSummary(file, summaryLength, summaryTemplate);
+      const result = await summarizeStream(
+        {
+          file,
+          length: summaryLength,
+          template: summaryTemplate,
+          signal: controller.signal,
+        },
+        {
+          onStart: ({ traceId }) => {
+            runIfActive(() => {
+              if (traceId) {
+                console.info('LangChain trace ID:', traceId);
+              }
+            });
+          },
+          onToken: (payload) => {
+            runIfActive(() => {
+              setStreamingText((prev) => prev + payload.token);
 
-      if (result.trace_id) {
-        console.info('LangChain trace ID:', result.trace_id);
+              if (typeof payload.progress === 'number') {
+                setStreamProgress(payload.progress);
+              } else if (typeof payload.index === 'number' && typeof payload.total === 'number' && payload.total > 0) {
+                setStreamProgress(payload.index / payload.total);
+              }
+            });
+          },
+          onProgress: ({ value }) => {
+            if (typeof value === 'number') {
+              runIfActive(() => {
+                setStreamProgress(value);
+              });
+            }
+          },
+          onError: (message) => {
+            runIfActive(() => {
+              setStreamError(message);
+              setStreamStatus('error');
+            });
+          },
+          onComplete: ({ summary: streamedSummary }) => {
+            runIfActive(() => {
+              if (streamedSummary) {
+                setStreamingText(streamedSummary);
+              }
+              setStreamProgress(1);
+            });
+          },
+        }
+      );
+
+      if (result.summary) {
+        runIfActive(() => {
+          setSummary(result.summary);
+          setStreamStatus('complete');
+        });
+      } else {
+        runIfActive(() => {
+          setStreamError('요약이 생성되지 않았습니다. 다시 시도해주세요.');
+          setStreamStatus('error');
+        });
       }
-
-      if (result.error) {
-        setError(result.error);
-        setSummary(null);
-        return;
-      }
-
-      if (!result.summary) {
-        setError('요약이 생성되지 않았습니다. 다시 시도해주세요.');
-        setSummary(null);
-        return;
-      }
-
-      setSummary(result.summary);
-      setError(null);
     } catch (err) {
-      console.error(err);
-      setError('요약을 요청하는 중 오류가 발생했습니다.');
-      setSummary(null);
+      if (activeRequestIdRef.current === requestId) {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          setStreamError('요약 요청이 취소되었습니다.');
+        } else if (err instanceof Error) {
+          setStreamError(err.message);
+        } else {
+          setStreamError('요약 스트리밍 중 알 수 없는 오류가 발생했습니다.');
+        }
+        setStreamStatus('error');
+        setSummary(null);
+      }
     } finally {
-      setIsLoading(false);
+      if (activeRequestIdRef.current === requestId) {
+        setIsLoading(false);
+        if (streamControllerRef.current === controller) {
+          streamControllerRef.current = null;
+        }
+      }
     }
   }, [file, summaryLength, summaryTemplate]);
+
+  useEffect(() => {
+    return () => {
+      activeRequestIdRef.current += 1;
+      if (streamControllerRef.current) {
+        streamControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const isSummarizeDisabled = !file || isLoading;
   
   if (hash.startsWith('#/s/')) {
-      const encodedSummary = hash.substring(4);
-      return <SharedResultPage encodedSummary={encodedSummary} />;
+    const encodedSummary = hash.substring(4);
+    return <SharedResultPage encodedSummary={encodedSummary} />;
   }
 
   return (
@@ -116,7 +206,14 @@ const App: React.FC = () => {
         </div>
 
         <div className="h-[70vh] lg:h-auto">
-          <ResultDisplay summary={summary} isLoading={isLoading} />
+          <ResultDisplay
+            summary={summary}
+            streamingText={streamingText}
+            streamStatus={streamStatus}
+            streamProgress={streamProgress}
+            streamError={streamError}
+            onRetry={file ? handleGenerateSummary : undefined}
+          />
         </div>
       </main>
     </div>
