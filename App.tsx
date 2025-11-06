@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { SummaryLength } from './types';
+import { SummaryLength, SummaryTemplate } from './types';
 import FileUploader from './components/FileUploader';
 import SummaryOptions from './components/SummaryOptions';
 import ResultDisplay from './components/ResultDisplay';
@@ -11,6 +11,7 @@ const App: React.FC = () => {
   const [hash, setHash] = useState(window.location.hash);
   const [file, setFile] = useState<File | null>(null);
   const [summaryLength, setSummaryLength] = useState<SummaryLength>(SummaryLength.Short);
+  const [summaryTemplate, setSummaryTemplate] = useState<SummaryTemplate>(SummaryTemplate.Default);
   const [summary, setSummary] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +32,7 @@ const App: React.FC = () => {
     setSummary(null);
 
     try {
-      const result = await generateSummary(file, summaryLength);
+      const result = await generateSummary(file, summaryLength, summaryTemplate);
 
       if (result.trace_id) {
         console.info('LangChain trace ID:', result.trace_id);
@@ -58,7 +59,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [file, summaryLength]);
+  }, [file, summaryLength, summaryTemplate]);
 
   const isSummarizeDisabled = !file || isLoading;
   
@@ -85,8 +86,13 @@ const App: React.FC = () => {
           </div>
 
           <div className="space-y-4">
-              <h2 className="text-xl font-semibold text-slate-200">2. 요약 길이 선택</h2>
-              <SummaryOptions selectedLength={summaryLength} onLengthChange={setSummaryLength} />
+              <h2 className="text-xl font-semibold text-slate-200">2. 요약 옵션 선택</h2>
+              <SummaryOptions
+                selectedLength={summaryLength}
+                onLengthChange={setSummaryLength}
+                selectedTemplate={summaryTemplate}
+                onTemplateChange={setSummaryTemplate}
+              />
           </div>
           
           {error && (

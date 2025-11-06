@@ -1,4 +1,4 @@
-import { SummaryLength, SummarizeResponse } from '../types';
+import { SummaryLength, SummaryTemplate, SummarizeResponse } from '../types';
 
 const buildEndpoint = (base: string, path: string) => {
   if (!path) {
@@ -20,7 +20,8 @@ const summarizeEndpoint = baseUrl ? buildEndpoint(baseUrl, '/api/summarize') : n
 
 export const generateSummary = async (
   file: File,
-  length: SummaryLength
+  length: SummaryLength,
+  template: SummaryTemplate
 ): Promise<SummarizeResponse> => {
   if (!summarizeEndpoint) {
     return {
@@ -31,6 +32,7 @@ export const generateSummary = async (
   const formData = new FormData();
   formData.append('file', file);
   formData.append('summary_length', length);
+  formData.append('summary_template', template);
 
   try {
     const response = await fetch(summarizeEndpoint, {
