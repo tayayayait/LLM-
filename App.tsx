@@ -1,39 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { SummaryLength, FileData } from './types';
+import { SummaryLength } from './types';
 import FileUploader from './components/FileUploader';
 import SummaryOptions from './components/SummaryOptions';
 import ResultDisplay from './components/ResultDisplay';
 import SharedResultPage from './components/SharedResultPage';
 import { generateSummary } from './services/geminiService';
 import { SparklesIcon } from './components/icons';
-
-const readFile = (file: File): Promise<FileData> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    
-    if (file.name.toLowerCase().endsWith('.txt')) {
-      reader.onload = () => resolve({
-        content: reader.result as string,
-        mimeType: 'text/plain',
-        isBase64: false
-      });
-      reader.readAsText(file);
-    } else if (file.name.toLowerCase().endsWith('.docx')) {
-      reader.onload = () => {
-        const base64String = (reader.result as string).split(',')[1];
-        resolve({
-          content: base64String,
-          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          isBase64: true
-        });
-      };
-      reader.readAsDataURL(file);
-    } else {
-      reject(new Error('Unsupported file type'));
-    }
-  });
-};
 
 const App: React.FC = () => {
   const [hash, setHash] = useState(window.location.hash);
@@ -59,12 +31,30 @@ const App: React.FC = () => {
     setSummary(null);
 
     try {
-      const fileData = await readFile(file);
-      const result = await generateSummary(fileData, summaryLength);
-      setSummary(result);
+      const result = await generateSummary(file, summaryLength);
+
+      if (result.trace_id) {
+        console.info('LangChain trace ID:', result.trace_id);
+      }
+
+      if (result.error) {
+        setError(result.error);
+        setSummary(null);
+        return;
+      }
+
+      if (!result.summary) {
+        setError('요약이 생성되지 않았습니다. 다시 시도해주세요.');
+        setSummary(null);
+        return;
+      }
+
+      setSummary(result.summary);
+      setError(null);
     } catch (err) {
       console.error(err);
-      setError('파일을 읽거나 요약을 생성하는 중 오류가 발생했습니다.');
+      setError('요약을 요청하는 중 오류가 발생했습니다.');
+      setSummary(null);
     } finally {
       setIsLoading(false);
     }

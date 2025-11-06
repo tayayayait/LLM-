@@ -1,63 +1,85 @@
-import { GoogleGenAI } from "@google/genai";
-import { SummaryLength, FileData } from '../types';
+import { SummaryLength, SummarizeResponse } from '../types';
 
-const API_KEY = process.env.API_KEY;
+const buildEndpoint = (base: string, path: string) => {
+  if (!path) {
+    return base;
+  }
 
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable not set");
-}
+  if (base.endsWith('/')) {
+    return `${base}${path.startsWith('/') ? path.slice(1) : path}`;
+  }
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+};
+
+const baseUrl = typeof import.meta.env.VITE_BACKEND_URL === 'string'
+  ? import.meta.env.VITE_BACKEND_URL.trim()
+  : '';
+
+const summarizeEndpoint = baseUrl ? buildEndpoint(baseUrl, '/api/summarize') : null;
 
 export const generateSummary = async (
-  fileData: FileData,
+  file: File,
   length: SummaryLength
-): Promise<string> => {
-  const lengthInstruction = length === SummaryLength.Short
-    ? "3줄로 짧게 요약"
-    : "한 문단으로 중간 길이로 요약";
+): Promise<SummarizeResponse> => {
+  if (!summarizeEndpoint) {
+    return {
+      error: '백엔드 요약 서비스 URL이 설정되지 않았습니다.',
+    };
+  }
 
-  const basePrompt = `당신은 SK 하이닉스 직원을 돕는 유용한 어시스턴트입니다. 주어진 문서의 내용을 한국어로 요약하는 것이 당신의 임무입니다.
-요약은 ${lengthInstruction}으로 해주세요.`;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('summary_length', length);
 
   try {
-    const promptForTextFile = `${basePrompt}
----
-문서 내용:
-${fileData.content}
----
-요약:`;
-
-    const promptForDocxFile = `${basePrompt}
----
-아래 제공되는 파일 내용을 바탕으로 요약해주세요.
----
-요약:`;
-    
-    const contents = fileData.isBase64
-      ? {
-          parts: [
-            { text: promptForDocxFile },
-            {
-              inlineData: {
-                data: fileData.content,
-                mimeType: fileData.mimeType,
-              },
-            },
-          ],
-        }
-      : promptForTextFile;
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents,
+    const response = await fetch(summarizeEndpoint, {
+      method: 'POST',
+      body: formData,
     });
-    return response.text;
-  } catch (error) {
-    console.error("Error generating summary:", error);
-    if (error instanceof Error) {
-        return `오류: 요약 생성에 실패했습니다. ${error.message}`;
+
+    let json: unknown;
+    try {
+      json = await response.json();
+    } catch (parseError) {
+      console.error('Failed to parse summarize response:', parseError);
+      return {
+        error: '요약 응답을 해석하는 중 오류가 발생했습니다.',
+      };
     }
-    return "요약을 생성하는 중 알 수 없는 오류가 발생했습니다.";
+
+    const data = json as {
+      summary?: unknown;
+      trace_id?: unknown;
+      error?: unknown;
+    };
+
+    const parsed: SummarizeResponse = {
+      summary: typeof data.summary === 'string' ? data.summary : undefined,
+      trace_id: typeof data.trace_id === 'string' ? data.trace_id : undefined,
+      error: typeof data.error === 'string' ? data.error : undefined,
+    };
+
+    if (!response.ok) {
+      return {
+        ...parsed,
+        error: parsed.error ?? '요약 생성 요청이 실패했습니다.',
+      };
+    }
+
+    if (!parsed.summary) {
+      return {
+        ...parsed,
+        error: parsed.error ?? '요약이 응답에 포함되지 않았습니다.',
+      };
+    }
+
+    return parsed;
+  } catch (error) {
+    console.error('Error requesting summary:', error);
+    const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return {
+      error: `요약을 요청하는 중 오류가 발생했습니다. ${message}`,
+    };
   }
 };
