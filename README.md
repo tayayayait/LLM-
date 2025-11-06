@@ -15,6 +15,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1RO-mn8nlqLqA8TteChaZMA
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set the `VITE_BACKEND_URL` in [.env.local](.env.local) to the LangChain backend REST base URL (e.g. `http://localhost:8000`).
+   API keys should be stored and managed exclusively by the backend service.
 3. Run the app:
    `npm run dev`

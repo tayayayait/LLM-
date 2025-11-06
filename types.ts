@@ -3,8 +3,8 @@ export enum SummaryLength {
   Medium = 'medium',
 }
 
-export interface FileData {
-  content: string;
-  mimeType: string;
-  isBase64: boolean;
+export interface SummarizeResponse {
+  summary?: string;
+  trace_id?: string;
+  error?: string;
 }
