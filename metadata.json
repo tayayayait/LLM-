@@ -1,0 +1,5 @@
+{
+  "name": "Nexus AI 문서 요약기",
+  "description": "직원들이 문서(.docx, .txt)를 빠르고 효율적으로 요약하여 수작업을 줄이고 생산성을 향상시키는 데 도움을 주는 내부 AI 어시스턴트입니다.",
+  "requestFramePermissions": []
+}
